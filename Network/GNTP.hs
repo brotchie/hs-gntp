@@ -212,14 +212,14 @@ notificationsCount (_:xs) = notificationsCount xs
 notificationsCount [] = 0
 
 requestParser :: Parser Request
-requestParser = do _ <- string "GNTP/"
-                   version             <- versionParser <* space <?> "Version"
-                   reqType             <- requestTypeParser <* space <?> "RequestType"
-                   encryptionAlgorithm <- encryptionAlgorithmParser <?> "EncryptionAlgorithm"
-                   eatCRLF
-                   headers             <- headersParser <?> "Headers"
-                   notifications       <- count (notificationsCount headers) headersParser <?> "Notifications"
-                   return $ Request version reqType encryptionAlgorithm headers notifications
+requestParser = do 
+    _ <- string "GNTP/"
+    version             <- versionParser <* space                           <?> "Version+Space"
+    reqType             <- requestTypeParser <* space                       <?> "RequestType+Space"
+    encryptionAlgorithm <- encryptionAlgorithmParser <* eatCRLF             <?> "EncryptionAlgorithm+CRLF"
+    headers             <- headersParser                                    <?> "Headers"
+    notifications       <- count (notificationsCount headers) headersParser <?> "Notifications"
+    return $ Request version reqType encryptionAlgorithm headers notifications
 
 -- | Attempts to parse a GNTP 'Request' from a lazy 'LBS.ByteString'.
 parseRequest :: LBS.ByteString -> Result Request
