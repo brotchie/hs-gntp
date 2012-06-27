@@ -24,6 +24,12 @@ library
 
     build-depends:
         attoparsec >= 0.10.2.0,
-        base == 4.*
+        base == 4.*,
+        bytestring >= 0.9.1.10,
+        ghc-binary >= 0.5.0.2
 
     ghc-options: -O2 -Wall
+
+source-repository master
+    type:       git
+    location:   https://github.com/brotchie/hs-gntp.git

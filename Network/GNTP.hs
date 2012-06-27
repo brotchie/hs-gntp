@@ -9,35 +9,18 @@ module Network.GNTP
     , EncryptionAlgorithm (..)
     , StringValue, IntValue, BoolValue
     , UniqueID (..), URL (..)
-    , Result (..)
     , parseRequest
     , requestType
     , encodeResponse
     ) where
 
-{-
- 
-Request (GNTP (Version 1 0) Notify Nothing) 
-[ApplicationName "PythonMini",
-NotificationName "Message",
-OriginPlatformVersion "Linux-3.0.0-16-generic-x86_64-with-Ubuntu-11.10-oneiric",
-OriginSoftwareVersion "0.7",
-OriginMachineName "ganon-ThinkPad-X220",
-OriginSoftwareName "gntp.py",
-OriginPlatformName "Linux"] []
--}
 import Control.Applicative
 
-import Data.Maybe
-import Data.String
-import Data.Either
-import Data.Monoid
 import Data.Binary.Put
 import Data.ByteString.Char8 hiding (map, count)
 import qualified Data.ByteString.Lazy.Char8 as LBS
 import Data.Attoparsec.Char8 hiding (parse, Result)
 import Data.Attoparsec.Lazy (parse, Result)
-import Data.Attoparsec.Combinator
 
 data RequestType = Register | Notify | Subscribe deriving Show
 data ResponseType = Ok RequestType
@@ -99,8 +82,7 @@ encodeResponse (Response resptype) = runPut $
                         put (requestTypeByteString reqtype) \\
                         done
 
-        (Error code) -> put "-ERROR 15" \\
-                        done
+        (Error _)    -> error "Not implemented"
 
     where put = putByteString
           done = put crlf
@@ -124,10 +106,12 @@ takeTillChar c = takeTill (== c)
 
 requestTypeParser :: Parser RequestType
 requestTypeParser = do messageType <- takeTill isSpace <* space
-                       return $ case messageType of
-                         "REGISTER" -> Register
-                         "NOTIFY" -> Notify
-                         "SUBSCRIBE" -> Subscribe
+                       case messageType of
+                         "REGISTER"  -> return Register
+                         "NOTIFY"    -> return Notify
+                         "SUBSCRIBE" -> return Subscribe
+                         _           -> error $ "Invalid message type " ++ unpack messageType
+                         
 
 requestTypeByteString :: RequestType -> ByteString
 requestTypeByteString Register  = "REGISTER"
@@ -204,7 +188,7 @@ headersParser :: Parser Headers
 headersParser = manyTill headerParser eatCRLF
 
 notificationsCount :: Headers -> Int
-notificationsCount (NotificationsCount x:xs) = x
+notificationsCount (NotificationsCount x:_) = x
 notificationsCount (_:xs) = notificationsCount xs
 notificationsCount [] = 0
 
@@ -216,9 +200,3 @@ requestParser = do info <- infoParser <?> "Info"
 
 parseRequest :: LBS.ByteString -> Result Request
 parseRequest = parse requestParser
-
-parseFullMessage :: LBS.ByteString -> IO ()
-parseFullMessage bs = do let p = parse requestParser bs
-                         print p
-                         LBS.putStrLn $ encodeResponse (Response $ Ok Register)
-                         LBS.putStrLn $ encodeResponse (Response $ Error 22)
