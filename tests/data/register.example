@@ -1,0 +1,28 @@
+GNTP/1.0 REGISTER NONE
+Connection: Close
+Application-Name: SABnzbd@keelan-server
+Application-Icon: http://sabnzbdplus.sourceforge.net/version/sabnzbd.ico
+Origin-Platform-Version: Windows-Vista-6.1.7601-SP1
+Origin-Software-Version: 0.4
+Origin-Machine-Name: KEELAN-SERVER
+Origin-Software-Name: gntp.py
+Origin-Platform-Name: Windows
+Notifications-Count: 5
+
+Notification-Enabled: True
+Notification-Name: Startup/Shutdown
+Notification-Display-Name: Hello World
+Notification-Icon: //1234-5678-9012-1234
+
+Notification-Enabled: True
+Notification-Name: Added NZB
+
+Notification-Enabled: True
+Notification-Name: Post-processing started
+
+Notification-Enabled: True
+Notification-Name: Job finished
+
+Notification-Enabled: True
+Notification-Name: Other Messages
+

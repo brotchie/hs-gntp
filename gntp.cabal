@@ -1,0 +1,29 @@
+name:           gntp
+version:        0.1
+category:       Network
+author:         James Brotchie
+maintainer:     brotchie@gmail.com
+copyright:      (c) 2012 James Brotchie
+stability:      experimental
+tested-with:    GHC == 7.0.3
+synopsis:       GNTP parsing and encoding
+cabal-version:  >= 1.8
+homepage:       https://github.com/brotchie/hs-gntp
+bug-reports:    https://github.com/brotchie/hs-gntp/issues
+build-type:     Simple
+description:
+    A Growl Notification Transport Protocol (GNTP) parser
+    and encoder.
+
+extra-source-files:
+    README.md
+
+library
+    exposed-modules:
+        Network.GNTP
+
+    build-depends:
+        attoparsec >= 0.10.2.0,
+        base == 4.*
+
+    ghc-options: -O2 -Wall
