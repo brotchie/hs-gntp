@@ -1,16 +1,28 @@
 {-# LANGUAGE OverloadedStrings, TypeSynonymInstances, FlexibleInstances, PostfixOperators #-}
+-- |
+-- Module:      Network.GNTP
+-- Copyright:   (c) 2012 James Brotchie
+-- Maintainer:  James Brotchie <brotchie@gmail.com>
+-- Stability:   experimental
+--
 module Network.GNTP 
     (
+    -- * Core GNTP types
       Request (..)
-    , Response (..)
+    , Version (..)
     , RequestType (..)
-    , ResponseType (..)
-    , Info (..)
     , EncryptionAlgorithm (..)
+    , Response (..)
+    , ResponseType (..)
+    -- * Header types
+    , Header (..)
     , StringValue, IntValue, BoolValue
     , UniqueID (..), URL (..)
-    , parseRequest
+    -- * Request helpers
     , requestType
+    -- * Request parsing
+    , parseRequest
+    -- * Response encoding
     , encodeResponse
     ) where
 
@@ -22,15 +34,30 @@ import qualified Data.ByteString.Lazy.Char8 as LBS
 import Data.Attoparsec.Char8 hiding (parse, Result)
 import Data.Attoparsec.Lazy (parse, Result)
 
-data RequestType = Register | Notify | Subscribe deriving Show
+-- | A full description of a GNTP request. 
+--
+-- Use 'parseRequest' returns to build a 'Request' instance
+-- from a lazy 'LBS.ByteString'.
+data Request = Request Version RequestType (Maybe EncryptionAlgorithm) Headers [NotificationHeaders] deriving Show
+
+data RequestType = Register
+                 | Notify
+                 | Subscribe
+                 deriving Show
+
+data Version = Version Int Int 
+             deriving Show
+
+data Response = Response Version ResponseType (Maybe EncryptionAlgorithm)
+              deriving Show
 data ResponseType = Ok RequestType
                   | Error Int
                   deriving Show
 
-data Info = GNTP Version RequestType (Maybe EncryptionAlgorithm)
-          deriving Show
 
-data EncryptionAlgorithm = EncryptionAlgorithm deriving Show
+-- | Not implemented as yet.
+data EncryptionAlgorithm = EncryptionAlgorithm 
+                         deriving Show
 
 type StringValue = ByteString
 type IntValue = Int
@@ -39,8 +66,6 @@ newtype UniqueID = UniqueID ByteString deriving Show
 newtype URL = URL ByteString deriving Show
 
 data ConnectionDirective = Close | KeepAlive deriving Show
-
-data Version = Version Int Int deriving Show
 
 data Header = ApplicationName StringValue
             | ApplicationIcon (Either UniqueID URL)
@@ -67,14 +92,12 @@ data Header = ApplicationName StringValue
 type Headers = [Header]
 type NotificationHeaders = [Header]
 
-data Request = Request Info Headers [NotificationHeaders] deriving Show
-data Response = Response ResponseType deriving Show
-
 requestType :: Request -> RequestType
-requestType (Request (GNTP _ reqtype _) _ _) = reqtype
+requestType (Request _ reqtype _ _ _) = reqtype
 
+-- | Encodes a 'Response' instance into a lazy 'LBS.ByteString'.
 encodeResponse :: Response -> LBS.ByteString
-encodeResponse (Response resptype) = runPut $
+encodeResponse (Response _ resptype _) = runPut $
     put "GNTP/1.0 " >>
     case resptype of
         (Ok reqtype) -> put "-OK NONE" \\
@@ -125,12 +148,6 @@ versionParser :: Parser Version
 versionParser = Version <$> decimal <* char '.'
                         <*> decimal <*  space
 
-infoParser :: Parser Info
-infoParser = string "GNTP/" >>
-             GNTP <$> versionParser
-                  <*> requestTypeParser
-                  <*> encryptionAlgorithmParser
-                  <*  endOfLine
 
 headerNameParser :: Parser ByteString
 headerNameParser = takeTillDiscardLast ':' <* skipSpace
@@ -193,10 +210,15 @@ notificationsCount (_:xs) = notificationsCount xs
 notificationsCount [] = 0
 
 requestParser :: Parser Request
-requestParser = do info <- infoParser <?> "Info"
-                   headers <- headersParser <?> "Headers"
-                   notifications <- count (notificationsCount headers) headersParser <?> "Notifications"
-                   return $ Request info headers notifications
+requestParser = do _ <- string "GNTP/"
+                   version             <- versionParser <?> "Version" 
+                   reqType             <- requestTypeParser <?> "RequestType"
+                   encryptionAlgorithm <- encryptionAlgorithmParser <?> "EncryptionAlgorithm"
+                   eatCRLF
+                   headers             <- headersParser <?> "Headers"
+                   notifications       <- count (notificationsCount headers) headersParser <?> "Notifications"
+                   return $ Request version reqType encryptionAlgorithm headers notifications
 
+-- | Attempts to parse a GNTP 'Request' from a lazy 'LBS.ByteString'.
 parseRequest :: LBS.ByteString -> Result Request
 parseRequest = parse requestParser

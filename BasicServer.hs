@@ -26,8 +26,11 @@ eventLoop socket = do
     hClose h
     eventLoop socket
 
+gntpVersion :: Version
+gntpVersion = Version 1 0
+
 handleRequest :: Request -> Handle -> IO()
 handleRequest request h = do
-    let response = Response (Ok $ requestType request)
+    let response = Response gntpVersion (Ok $ requestType request) Nothing
     print $ request
     LBS.hPut h $ encodeResponse response
