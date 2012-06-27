@@ -130,7 +130,7 @@ takeTillChar :: Char -> Parser ByteString
 takeTillChar c = takeTill (== c)
 
 requestTypeParser :: Parser RequestType
-requestTypeParser = do messageType <- takeTill isSpace <* space
+requestTypeParser = do messageType <- takeTill isSpace
                        case messageType of
                          "REGISTER"  -> return Register
                          "NOTIFY"    -> return Notify
@@ -148,7 +148,7 @@ encryptionAlgorithmParser = string "NONE" >> return Nothing
 
 versionParser :: Parser Version
 versionParser = Version <$> decimal <* char '.'
-                        <*> decimal <*  space
+                        <*> decimal
 
 
 headerNameParser :: Parser ByteString
@@ -213,8 +213,8 @@ notificationsCount [] = 0
 
 requestParser :: Parser Request
 requestParser = do _ <- string "GNTP/"
-                   version             <- versionParser <?> "Version" 
-                   reqType             <- requestTypeParser <?> "RequestType"
+                   version             <- versionParser <* space <?> "Version"
+                   reqType             <- requestTypeParser <* space <?> "RequestType"
                    encryptionAlgorithm <- encryptionAlgorithmParser <?> "EncryptionAlgorithm"
                    eatCRLF
                    headers             <- headersParser <?> "Headers"
