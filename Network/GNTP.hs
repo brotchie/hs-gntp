@@ -18,6 +18,7 @@ module Network.GNTP
     , Header (..)
     , StringValue, IntValue, BoolValue
     , UniqueID (..), URL (..)
+    , Headers, NotificationHeaders
     -- * Request helpers
     , requestType
     -- * Request parsing
@@ -45,6 +46,7 @@ data RequestType = Register
                  | Subscribe
                  deriving Show
 
+-- | GNTP protocol version. Only known version is @Version 1 0@.
 data Version = Version Int Int 
              deriving Show
 
