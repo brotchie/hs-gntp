@@ -9,3 +9,4 @@ exampleGNTPTransaction = LBS.readFile "tests/data/register.example"
 main :: IO ()
 main = do contents <- exampleGNTPTransaction
           print $ parseRequest contents
+          LBS.putStrLn $ encodeResponse $ createOkResponse Notify

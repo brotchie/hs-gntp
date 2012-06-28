@@ -1,4 +1,4 @@
-{-# LANGUAGE OverloadedStrings, TypeSynonymInstances, FlexibleInstances, PostfixOperators #-}
+{-# LANGUAGE OverloadedStrings, TypeSynonymInstances #-}
 -- |
 -- Module:      Network.GNTP
 -- Copyright:   (c) 2012 James Brotchie
@@ -25,15 +25,17 @@ module Network.GNTP
     , parseRequest
     -- * Response encoding
     , encodeResponse
+    , createOkResponse
+    , defaultVersion
     ) where
 
-import Control.Applicative
+import Control.Applicative ((<*),(<*>),(<$>),(<|>))
 
-import Data.Binary.Put
+import Data.Binary.Put (Put, runPut, putByteString)
 import Data.ByteString.Char8 hiding (map, count)
-import qualified Data.ByteString.Lazy.Char8 as LBS
 import Data.Attoparsec.Char8 hiding (parse, Result)
 import Data.Attoparsec.Lazy (parse, Result)
+import qualified Data.ByteString.Lazy.Char8 as LBS
 
 -- | A full description of a GNTP request. 
 --
@@ -49,6 +51,10 @@ data RequestType = Register
 -- | GNTP protocol version. Only known version is @Version 1 0@.
 data Version = Version Int Int 
              deriving Show
+
+-- | The default GNTP version.
+defaultVersion :: Version
+defaultVersion = Version 1 0
 
 data Response = Response Version ResponseType (Maybe EncryptionAlgorithm)
               deriving Show
@@ -99,21 +105,35 @@ requestType (Request _ reqtype _ _ _) = reqtype
 
 -- | Encodes a 'Response' instance into a lazy 'LBS.ByteString'.
 encodeResponse :: Response -> LBS.ByteString
-encodeResponse (Response _ resptype _) = runPut $
-    put "GNTP/1.0 " >>
+encodeResponse (Response version resptype encrypt) = runPut $ do
+    put "GNTP/"
+    versionEncoder version
+    putSpace
     case resptype of
-        (Ok reqtype) -> put "-OK NONE" \\
-                        put "Response-Action: " >>
-                        put (requestTypeByteString reqtype) \\
-                        done
-
+        (Ok reqtype) -> do put (responseTypeByteString resptype) >> putSpace
+                           encryptionAlgorithmEncoder encrypt >> putCRLF
+                           put "Response-Action: "
+                           put (requestTypeByteString reqtype)
+                           putEnd
         (Error _)    -> error "Not implemented"
 
-    where put = putByteString
-          done = put crlf
-          (\\) x y = x >> put crlf >> y
-          
-    
+-- Helpers for encoding messages.
+put :: ByteString -> Put
+put = putByteString
+
+putNum :: (Num a, Show a) => a -> Put
+putNum x = put . pack $ show x
+
+putSpace :: Put
+putSpace = put " "
+
+putCRLF :: Put
+putCRLF = put crlf
+
+putEnd :: Put
+putEnd = putCRLF >> putCRLF
+
+
 class HeaderValue a where
     headerValueParser :: Parser a
 
@@ -143,8 +163,20 @@ requestTypeByteString Register  = "REGISTER"
 requestTypeByteString Notify    = "NOTIFY"
 requestTypeByteString Subscribe = "SUBSCRIBE"
 
+responseTypeByteString :: ResponseType -> ByteString
+responseTypeByteString (Ok _)    = "-OK"
+responseTypeByteString (Error _) = "-ERROR"
+
+encryptionAlgorithmEncoder :: (Maybe EncryptionAlgorithm) -> Put
+encryptionAlgorithmEncoder _ = put "NONE"
+
 encryptionAlgorithmParser :: Parser (Maybe EncryptionAlgorithm)
 encryptionAlgorithmParser = string "NONE" >> return Nothing
+
+versionEncoder :: Version -> Put
+versionEncoder (Version major minor) = putNum major >>
+                                       put "." >>
+                                       putNum minor
 
 versionParser :: Parser Version
 versionParser = Version <$> decimal <* char '.'
@@ -214,8 +246,8 @@ notificationsCount [] = 0
 requestParser :: Parser Request
 requestParser = do 
     _ <- string "GNTP/"
-    version             <- versionParser <* space                           <?> "Version+Space"
-    reqType             <- requestTypeParser <* space                       <?> "RequestType+Space"
+    version             <- versionParser             <* space               <?> "Version+Space"
+    reqType             <- requestTypeParser         <* space               <?> "RequestType+Space"
     encryptionAlgorithm <- encryptionAlgorithmParser <* eatCRLF             <?> "EncryptionAlgorithm+CRLF"
     headers             <- headersParser                                    <?> "Headers"
     notifications       <- count (notificationsCount headers) headersParser <?> "Notifications"
@@ -224,3 +256,9 @@ requestParser = do
 -- | Attempts to parse a GNTP 'Request' from a lazy 'LBS.ByteString'.
 parseRequest :: LBS.ByteString -> Result Request
 parseRequest = parse requestParser
+
+
+-- | Creates a response with the default GNTP version, an OK
+-- response type, and no encryption.
+createOkResponse :: RequestType -> Response
+createOkResponse reqtype = Response defaultVersion (Ok reqtype) Nothing

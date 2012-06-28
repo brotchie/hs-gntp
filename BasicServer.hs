@@ -1,6 +1,6 @@
 module Main where
 
-import IO (Handle, hPutStrLn, hClose)
+import IO (Handle, hClose)
 import Network (PortID(..), Socket, withSocketsDo, listenOn, accept)
 
 import qualified Data.ByteString.Lazy.Char8 as LBS
@@ -21,16 +21,12 @@ eventLoop socket = do
     contents <- LBS.hGetContents h
     let result = parseRequest contents
     case result of
-        (Fail _ context error) -> putStrLn $ (show context) ++ " : " ++ error
+        (Fail _ context perror) -> putStrLn $ (show context) ++ " : " ++ perror
         (Done _ request) -> handleRequest request h
     hClose h
     eventLoop socket
 
-gntpVersion :: Version
-gntpVersion = Version 1 0
-
 handleRequest :: Request -> Handle -> IO()
-handleRequest request h = do
-    let response = Response gntpVersion (Ok $ requestType request) Nothing
+handleRequest request@(Request _ reqtype _ _ _) h = do
     print $ request
-    LBS.hPut h $ encodeResponse response
+    LBS.hPut h $ encodeResponse $ createOkResponse reqtype
