@@ -67,10 +67,6 @@ data RequestType = Register
 data Version = Version Int Int 
              deriving (Show, Eq)
 
--- | The default GNTP version.
-defaultVersion :: Version
-defaultVersion = Version 1 0
-
 
 data Response = Response Version ResponseType (Maybe EncryptionAlgorithm)
               deriving Show
@@ -193,7 +189,7 @@ requestTypeByteString Notify    = "NOTIFY"
 requestTypeByteString Subscribe = "SUBSCRIBE"
 
 responseTypeByteString :: ResponseType -> ByteString
-responseTypeByteString (Ok _)    = "-OK"
+responseTypeByteString (Ok _)      = "-OK"
 responseTypeByteString (Error _ _) = "-ERROR"
 
 encryptionAlgorithmEncoder :: Maybe EncryptionAlgorithm -> Put
@@ -218,38 +214,42 @@ headerNameParser = takeTillDiscardLast ':' <* skipSpace
 -- function that returns an Attoparsec parser to parse a ByteString
 -- into a value of its type.
 class HeaderValue a where
-    headerValueParser :: Parser a
+    headerValueParser  :: Parser a
     headerValueEncoder :: a -> Put
 
 instance HeaderValue StringValue where
-    headerValueParser = takeTillChar '\r' <* eatCRLF <?> "StringValue"
+    headerValueParser  = takeTillChar '\r' <* eatCRLF <?> "StringValue"
     headerValueEncoder = put
 
 instance (HeaderValue a, HeaderValue b) => HeaderValue (Either a b) where
-    headerValueParser = eitherP headerValueParser headerValueParser <?> "Either"
+    headerValueParser  = eitherP headerValueParser headerValueParser <?> "Either"
     headerValueEncoder = either headerValueEncoder headerValueEncoder
 
 instance HeaderValue URL where
-    headerValueParser = URL <$> headerValueParser <?> "URL"
+    headerValueParser              = URL <$> headerValueParser <?> "URL"
     headerValueEncoder (URL value) = put value
 
 instance HeaderValue UniqueID where
-    headerValueParser = string "//" >> UniqueID <$> headerValueParser <?> "UniqueID"
+    headerValueParser                   = string "//" >> 
+                                          UniqueID <$> headerValueParser <?> "UniqueID"
     headerValueEncoder (UniqueID value) = put "//" >> put value
 
 instance HeaderValue IntValue where
-    headerValueParser = decimal <* eatCRLF <?> "IntValue"
+    headerValueParser  = decimal <* eatCRLF <?> "IntValue"
     headerValueEncoder = putNum
 
 instance HeaderValue ConnectionDirective where
     headerValueParser = do value <- (string "Close" <|> string "Keep-Alive") <* eatCRLF
-                           return $ if value == "Close" then Close else KeepAlive
-    headerValueEncoder Close = put "Close"
+                           case value of
+                               "Close"      -> return Close
+                               "Keep-Alive" -> return KeepAlive
+                               _            -> error "Unrecognized connection directive."
+    headerValueEncoder Close     = put "Close"
     headerValueEncoder KeepAlive = put "Keep-Alive"
 
 instance HeaderValue BoolValue where
-    headerValueParser = do value <- (string "True" <|> string "False") <* eatCRLF
-                           return $ value == "True"
+    headerValueParser        = do value <- (string "True" <|> string "False") <* eatCRLF
+                                  return $ value == "True"
     headerValueEncoder value = put . pack $ show value
 
 headerBuilder :: (HeaderValue a) => (a -> Header) -> Parser Header
@@ -281,10 +281,12 @@ headerParser = do
 headersParser :: Parser Headers
 headersParser = manyTill headerParser eatCRLF
 
+-- | Extracts the value of the notifications count header
+-- from a list of headers.
 notificationsCount :: Headers -> Int
 notificationsCount (NotificationsCount x:_) = x
-notificationsCount (_:xs) = notificationsCount xs
-notificationsCount [] = 0
+notificationsCount (_:xs)                   = notificationsCount xs
+notificationsCount []                       = 0
 
 requestParser :: Parser Request
 requestParser = do 
@@ -300,6 +302,9 @@ requestParser = do
 parseRequest :: LBS.ByteString -> Result Request
 parseRequest = parse requestParser
 
+-- | The default GNTP version.
+defaultVersion :: Version
+defaultVersion = Version 1 0
 
 -- | Creates a response with the default GNTP version, an OK
 -- response type, and no encryption.
