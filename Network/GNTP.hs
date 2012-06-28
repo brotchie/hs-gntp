@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings, TypeSynonymInstances #-}
+{-# OPTIONS_GHC -Werror -Wall #-}
 -- |
 -- Module:      Network.GNTP
 -- Copyright:   (c) 2012 James Brotchie
