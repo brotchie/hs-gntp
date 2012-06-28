@@ -5,19 +5,28 @@
 -- Maintainer:  James Brotchie <brotchie@gmail.com>
 -- Stability:   experimental
 --
+-- This module implements request parsing and response encoding for
+-- Version 1.0 of the Growl Notification Transport Protocol (GNTP).
+-- It was developed to proxy Growl notifications to other services.
+--
+-- A full description of Version 1.0 of the GNTP protocol
+-- is available at <http://www.growlforwindows.com/gfw/help/gntp.aspx>.
+--
 module Network.GNTP 
     (
     -- * Core GNTP types
       Request (..)
     , Version (..)
     , RequestType (..)
-    , EncryptionAlgorithm (..)
+    , EncryptionAlgorithm
     , Response (..)
     , ResponseType (..)
+    , ErrorCode, ErrorDescription
     -- * Header types
     , Header (..)
     , StringValue, IntValue, BoolValue
     , UniqueID (..), URL (..)
+    , ConnectionDirective (..)
     , Headers, NotificationHeaders
     -- * Request helpers
     , requestType
@@ -26,8 +35,13 @@ module Network.GNTP
     -- * Response encoding
     , encodeResponse
     , createOkResponse
+    , createErrorResponse
+    , createErrorResponseWithDescription
     , defaultVersion
     ) where
+
+import Control.Monad (when)
+import Data.Maybe (fromJust, isJust)
 
 import Control.Applicative ((<*),(<*>),(<$>),(<|>))
 
@@ -46,35 +60,44 @@ data Request = Request Version RequestType (Maybe EncryptionAlgorithm) Headers [
 data RequestType = Register
                  | Notify
                  | Subscribe
-                 deriving Show
+                 deriving (Show, Eq)
 
--- | GNTP protocol version. Only known version is @Version 1 0@.
+-- | GNTP protocol version. 1.0 is the only known version, and is retrievable
+-- using 'defaultVersion'.
 data Version = Version Int Int 
-             deriving Show
+             deriving (Show, Eq)
 
 -- | The default GNTP version.
 defaultVersion :: Version
 defaultVersion = Version 1 0
 
+
 data Response = Response Version ResponseType (Maybe EncryptionAlgorithm)
               deriving Show
 data ResponseType = Ok RequestType
-                  | Error Int
-                  deriving Show
+                  | Error ErrorCode (Maybe ErrorDescription)
+                  deriving (Show, Eq)
 
+type ErrorCode = Int
+type ErrorDescription = ByteString
 
 -- | Not implemented as yet.
 data EncryptionAlgorithm = EncryptionAlgorithm 
                          deriving Show
 
-type StringValue = ByteString
-type IntValue = Int
-type BoolValue = Bool
-newtype UniqueID = UniqueID ByteString deriving Show
-newtype URL = URL ByteString deriving Show
+-- Header value types.
+type    StringValue         = ByteString
+type    IntValue            = Int
+type    BoolValue           = Bool
+-- | A unique identifier. The stored value does not contain the @\/\/@ prefix.
+newtype UniqueID            = UniqueID ByteString deriving (Show, Eq)
+newtype URL                 = URL ByteString deriving (Show, Eq)
+data    ConnectionDirective = Close
+                            | KeepAlive
+                            deriving (Show, Eq)
 
-data ConnectionDirective = Close | KeepAlive deriving Show
-
+-- | The headers defined in the GNTP 1.0 standard. Custom
+-- headers are parsed as 'UnknownHeader' instances.
 data Header = ApplicationName StringValue
             | ApplicationIcon (Either UniqueID URL)
 
@@ -100,6 +123,7 @@ data Header = ApplicationName StringValue
 type Headers = [Header]
 type NotificationHeaders = [Header]
 
+-- | Extracts the 'RequestType' from a 'Request' instance.
 requestType :: Request -> RequestType
 requestType (Request _ reqtype _ _ _) = reqtype
 
@@ -107,15 +131,19 @@ requestType (Request _ reqtype _ _ _) = reqtype
 encodeResponse :: Response -> LBS.ByteString
 encodeResponse (Response version resptype encrypt) = runPut $ do
     put "GNTP/"
-    versionEncoder version
-    putSpace
+    versionEncoder version >> putSpace
+    put (responseTypeByteString resptype) >> putSpace
+    encryptionAlgorithmEncoder encrypt >> putCRLF
+
     case resptype of
-        (Ok reqtype) -> do put (responseTypeByteString resptype) >> putSpace
-                           encryptionAlgorithmEncoder encrypt >> putCRLF
-                           put "Response-Action: "
-                           put (requestTypeByteString reqtype)
-                           putEnd
-        (Error _)    -> error "Not implemented"
+        (Ok reqtype)      -> putStringHeader "Response-Action" requestTypeString
+                             where requestTypeString = requestTypeByteString reqtype
+
+        (Error code desc) -> putNumHeader "Error-Code" code >>
+                             when hasDescription putDescription
+                             where hasDescription = isJust desc
+                                   putDescription = putStringHeader "Error-Description" (fromJust desc)
+    putCRLF
 
 -- Helpers for encoding messages.
 put :: ByteString -> Put
@@ -130,12 +158,14 @@ putSpace = put " "
 putCRLF :: Put
 putCRLF = put crlf
 
-putEnd :: Put
-putEnd = putCRLF >> putCRLF
+putHeader :: ByteString -> Put -> Put
+putHeader header value = put header >> put ": " >> value >> putCRLF
 
+putStringHeader :: ByteString -> ByteString -> Put
+putStringHeader header value = putHeader header $ put value
 
-class HeaderValue a where
-    headerValueParser :: Parser a
+putNumHeader :: (Num a, Show a) => ByteString -> a -> Put
+putNumHeader header value = putHeader header $ putNum value
 
 crlf :: ByteString
 crlf = "\r\n"
@@ -165,9 +195,9 @@ requestTypeByteString Subscribe = "SUBSCRIBE"
 
 responseTypeByteString :: ResponseType -> ByteString
 responseTypeByteString (Ok _)    = "-OK"
-responseTypeByteString (Error _) = "-ERROR"
+responseTypeByteString (Error _ _) = "-ERROR"
 
-encryptionAlgorithmEncoder :: (Maybe EncryptionAlgorithm) -> Put
+encryptionAlgorithmEncoder :: Maybe EncryptionAlgorithm -> Put
 encryptionAlgorithmEncoder _ = put "NONE"
 
 encryptionAlgorithmParser :: Parser (Maybe EncryptionAlgorithm)
@@ -182,9 +212,14 @@ versionParser :: Parser Version
 versionParser = Version <$> decimal <* char '.'
                         <*> decimal
 
-
 headerNameParser :: Parser ByteString
 headerNameParser = takeTillDiscardLast ':' <* skipSpace
+
+-- | A instance of 'HeaderValue a' implements a 'headerValueParser'
+-- function that returns an Attoparsec parser to parse a ByteString
+-- into a value of its type.
+class HeaderValue a where
+    headerValueParser :: Parser a
 
 instance HeaderValue StringValue where
     headerValueParser = takeTillChar '\r' <* eatCRLF <?> "StringValue"
@@ -209,31 +244,31 @@ instance HeaderValue BoolValue where
     headerValueParser = do value <- (string "True" <|> string "False") <* eatCRLF
                            return $ value == "True"
 
-buildHeader :: (HeaderValue a) => (a -> Header) -> Parser Header
-buildHeader = (<$> headerValueParser)
+headerBuilder :: (HeaderValue a) => (a -> Header) -> Parser Header
+headerBuilder = (<$> headerValueParser)
 
 headerParser :: Parser Header
 headerParser = do
     headerName <- headerNameParser
     case headerName of
-        "Connection"                -> buildHeader Connection
-        "Application-Name"          -> buildHeader ApplicationName
-        "Application-Icon"          -> buildHeader ApplicationIcon
+        "Connection"                -> headerBuilder Connection
+        "Application-Name"          -> headerBuilder ApplicationName
+        "Application-Icon"          -> headerBuilder ApplicationIcon
 
-        "Origin-Platform-Version"   -> buildHeader OriginPlatformVersion
-        "Origin-Software-Version"   -> buildHeader OriginSoftwareVersion
-        "Origin-Machine-Name"       -> buildHeader OriginMachineName
-        "Origin-Software-Name"      -> buildHeader OriginSoftwareName
-        "Origin-Platform-Name"      -> buildHeader OriginPlatformName
+        "Origin-Platform-Version"   -> headerBuilder OriginPlatformVersion
+        "Origin-Software-Version"   -> headerBuilder OriginSoftwareVersion
+        "Origin-Machine-Name"       -> headerBuilder OriginMachineName
+        "Origin-Software-Name"      -> headerBuilder OriginSoftwareName
+        "Origin-Platform-Name"      -> headerBuilder OriginPlatformName
 
-        "Notifications-Count"       -> buildHeader NotificationsCount
-        "Notification-Enabled"      -> buildHeader NotificationEnabled
-        "Notification-Name"         -> buildHeader NotificationName
-        "Notification-Display-Name" -> buildHeader NotificationDisplayName
-        "Notification-Icon"         -> buildHeader NotificationIcon
-        "Notification-Text"         -> buildHeader NotificationText
-        "Notification-Title"        -> buildHeader NotificationTitle
-        _                           -> buildHeader $ UnknownHeader headerName
+        "Notifications-Count"       -> headerBuilder NotificationsCount
+        "Notification-Enabled"      -> headerBuilder NotificationEnabled
+        "Notification-Name"         -> headerBuilder NotificationName
+        "Notification-Display-Name" -> headerBuilder NotificationDisplayName
+        "Notification-Icon"         -> headerBuilder NotificationIcon
+        "Notification-Text"         -> headerBuilder NotificationText
+        "Notification-Title"        -> headerBuilder NotificationTitle
+        _                           -> headerBuilder $ UnknownHeader headerName
 
 headersParser :: Parser Headers
 headersParser = manyTill headerParser eatCRLF
@@ -262,3 +297,14 @@ parseRequest = parse requestParser
 -- response type, and no encryption.
 createOkResponse :: RequestType -> Response
 createOkResponse reqtype = Response defaultVersion (Ok reqtype) Nothing
+
+-- | Creates an ERROR response with the given error code, default GNTP version,
+-- and no encryption.
+createErrorResponse :: ErrorCode -> Response
+createErrorResponse errcode = Response defaultVersion (Error errcode Nothing) Nothing
+
+-- | Creates an ERROR response with the given error code, error description,
+-- default GNTP version, and no encryption.
+createErrorResponseWithDescription :: ErrorCode -> ByteString -> Response
+createErrorResponseWithDescription errcode errdesc =
+    Response defaultVersion (Error errcode $ Just errdesc) Nothing

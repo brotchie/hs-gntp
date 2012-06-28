@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Main where
 
 import Network.GNTP
@@ -10,3 +11,5 @@ main :: IO ()
 main = do contents <- exampleGNTPTransaction
           print $ parseRequest contents
           LBS.putStrLn $ encodeResponse $ createOkResponse Notify
+          LBS.putStrLn $ encodeResponse $ createErrorResponse 200
+          LBS.putStrLn $ encodeResponse $ createErrorResponseWithDescription 200 "Bad Error"
