@@ -107,7 +107,7 @@ data Header = ApplicationName StringValue
             | OriginSoftwareName StringValue
             | OriginPlatformName StringValue
 
-            | NotificationsCount Int
+            | NotificationsCount IntValue
             | NotificationName StringValue
             | NotificationDisplayName StringValue
             | NotificationEnabled BoolValue
@@ -115,9 +115,14 @@ data Header = ApplicationName StringValue
             | NotificationText StringValue
             | NotificationTitle StringValue
 
-            | UnknownHeader ByteString StringValue
-
             | Connection ConnectionDirective
+
+            -- Response headers, not used at the moment.
+--            | ResponseAction RequestType
+--            | ErrorCode IntValue
+--            | ErrorDescription StringValue
+
+            | UnknownHeader ByteString StringValue
             deriving Show
 
 type Headers = [Header]
@@ -136,13 +141,13 @@ encodeResponse (Response version resptype encrypt) = runPut $ do
     encryptionAlgorithmEncoder encrypt >> putCRLF
 
     case resptype of
-        (Ok reqtype)      -> putStringHeader "Response-Action" requestTypeString
+        (Ok reqtype)      -> putHeader "Response-Action" requestTypeString
                              where requestTypeString = requestTypeByteString reqtype
 
-        (Error code desc) -> putNumHeader "Error-Code" code >>
+        (Error code desc) -> putHeader "Error-Code" code >>
                              when hasDescription putDescription
                              where hasDescription = isJust desc
-                                   putDescription = putStringHeader "Error-Description" (fromJust desc)
+                                   putDescription = putHeader "Error-Description" (fromJust desc)
     putCRLF
 
 -- Helpers for encoding messages.
@@ -158,14 +163,8 @@ putSpace = put " "
 putCRLF :: Put
 putCRLF = put crlf
 
-putHeader :: ByteString -> Put -> Put
-putHeader header value = put header >> put ": " >> value >> putCRLF
-
-putStringHeader :: ByteString -> ByteString -> Put
-putStringHeader header value = putHeader header $ put value
-
-putNumHeader :: (Num a, Show a) => ByteString -> a -> Put
-putNumHeader header value = putHeader header $ putNum value
+putHeader :: (HeaderValue a) => ByteString -> a -> Put
+putHeader header value = put header >> put ": " >> headerValueEncoder value >> putCRLF
 
 crlf :: ByteString
 crlf = "\r\n"
@@ -220,29 +219,38 @@ headerNameParser = takeTillDiscardLast ':' <* skipSpace
 -- into a value of its type.
 class HeaderValue a where
     headerValueParser :: Parser a
+    headerValueEncoder :: a -> Put
 
 instance HeaderValue StringValue where
     headerValueParser = takeTillChar '\r' <* eatCRLF <?> "StringValue"
+    headerValueEncoder = put
 
 instance (HeaderValue a, HeaderValue b) => HeaderValue (Either a b) where
     headerValueParser = eitherP headerValueParser headerValueParser <?> "Either"
+    headerValueEncoder = either headerValueEncoder headerValueEncoder
 
 instance HeaderValue URL where
     headerValueParser = URL <$> headerValueParser <?> "URL"
+    headerValueEncoder (URL value) = put value
 
 instance HeaderValue UniqueID where
     headerValueParser = string "//" >> UniqueID <$> headerValueParser <?> "UniqueID"
+    headerValueEncoder (UniqueID value) = put "//" >> put value
 
 instance HeaderValue IntValue where
     headerValueParser = decimal <* eatCRLF <?> "IntValue"
+    headerValueEncoder = putNum
 
 instance HeaderValue ConnectionDirective where
     headerValueParser = do value <- (string "Close" <|> string "Keep-Alive") <* eatCRLF
                            return $ if value == "Close" then Close else KeepAlive
+    headerValueEncoder Close = put "Close"
+    headerValueEncoder KeepAlive = put "Keep-Alive"
 
 instance HeaderValue BoolValue where
     headerValueParser = do value <- (string "True" <|> string "False") <* eatCRLF
                            return $ value == "True"
+    headerValueEncoder value = put . pack $ show value
 
 headerBuilder :: (HeaderValue a) => (a -> Header) -> Parser Header
 headerBuilder = (<$> headerValueParser)
