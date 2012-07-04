@@ -95,31 +95,31 @@ data    ConnectionDirective = Close
 
 -- | The headers defined in the GNTP 1.0 standard. Custom
 -- headers are parsed as 'UnknownHeader' instances.
-data Header = ApplicationName StringValue
-            | ApplicationIcon (Either UniqueID URL)
+data Header = ApplicationName         StringValue
+            | ApplicationIcon         (Either UniqueID URL)
 
-            | OriginPlatformVersion StringValue
-            | OriginSoftwareVersion StringValue
-            | OriginMachineName StringValue
-            | OriginSoftwareName StringValue
-            | OriginPlatformName StringValue
+            | OriginPlatformVersion   StringValue
+            | OriginSoftwareVersion   StringValue
+            | OriginMachineName       StringValue
+            | OriginSoftwareName      StringValue
+            | OriginPlatformName      StringValue
 
-            | NotificationsCount IntValue
-            | NotificationName StringValue
+            | NotificationsCount      IntValue
+            | NotificationName        StringValue
             | NotificationDisplayName StringValue
-            | NotificationEnabled BoolValue
-            | NotificationIcon (Either UniqueID URL)
-            | NotificationText StringValue
-            | NotificationTitle StringValue
+            | NotificationEnabled     BoolValue
+            | NotificationIcon        (Either UniqueID URL)
+            | NotificationText        StringValue
+            | NotificationTitle       StringValue
 
-            | Connection ConnectionDirective
+            | Connection              ConnectionDirective
 
             -- Response headers, not used at the moment.
 --            | ResponseAction RequestType
 --            | ErrorCode IntValue
 --            | ErrorDescription StringValue
 
-            | UnknownHeader ByteString StringValue
+            | UnknownHeader           ByteString StringValue
             deriving Show
 
 type Headers = [Header]

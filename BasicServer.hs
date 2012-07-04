@@ -1,10 +1,13 @@
 module Main where
 
-import IO (Handle, hClose)
-import Network (PortID(..), Socket, withSocketsDo, listenOn, accept)
+import IO
+import Network
 
-import qualified Data.ByteString.Lazy.Char8 as LBS
+import Control.Concurrent
+import Control.Applicative
+
 import Data.Attoparsec.Lazy (Result (..))
+import qualified Data.ByteString.Lazy.Char8 as LBS
 
 import Network.GNTP
 
@@ -12,21 +15,22 @@ serverPort :: PortID
 serverPort = PortNumber 9090
 
 main :: IO ()
-main = withSocketsDo $ do socket <- listenOn serverPort
-                          eventLoop socket
+main = withSocketsDo gntpServer
+
+gntpServer :: IO ()
+gntpServer = listenOn serverPort >>= eventLoop
 
 eventLoop :: Socket -> IO ()
-eventLoop socket = do
-    (h, _, _) <- accept socket
-    contents <- LBS.hGetContents h
-    let result = parseRequest contents
-    case result of
-        (Fail _ context perror) -> putStrLn $ (show context) ++ " : " ++ perror
-        (Done _ request) -> handleRequest request h
-    hClose h
-    eventLoop socket
+eventLoop socket = accept socket >>= forkIO . handleClient >>
+                   eventLoop socket
 
-handleRequest :: Request -> Handle -> IO()
-handleRequest request@(Request _ reqtype _ _ _) h = do
-    print $ request
-    LBS.hPut h $ encodeResponse $ createOkResponse reqtype
+handleClient :: (Handle, HostName, PortNumber) -> IO ()
+handleClient (h, _, _) = do 
+  request <- parseRequest <$> LBS.hGetContents h
+  LBS.hPut h $ encodeResponse $ case request of
+    (Fail _ _ _) -> createErrorResponse 200
+    (Done _ req) -> handleRequest req
+  hClose h
+
+handleRequest :: Request -> Response
+handleRequest request = createOkResponse $ requestType request
