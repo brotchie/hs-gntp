@@ -1,5 +1,5 @@
-{-# LANGUAGE OverloadedStrings, TypeSynonymInstances #-}
-{-# OPTIONS_GHC -Werror -Wall #-}
+{-# LANGUAGE OverloadedStrings, TypeSynonymInstances, DeriveDataTypeable, TemplateHaskell #-}
+--{-# OPTIONS_GHC -Werror -Wall #-}
 -- |
 -- Module:      Network.GNTP
 -- Copyright:   (c) 2012 James Brotchie
@@ -33,6 +33,7 @@ module Network.GNTP
     , requestType
     -- * Request parsing
     , parseRequest
+    , requestParser
     -- * Response encoding
     , encodeResponse
     , createOkResponse
@@ -51,6 +52,8 @@ import Data.ByteString.Char8 hiding (map, count)
 import Data.Attoparsec.Char8 hiding (parse, Result)
 import Data.Attoparsec.Lazy (parse, Result)
 import qualified Data.ByteString.Lazy.Char8 as LBS
+
+import Data.DeriveTH
 
 -- | A full description of a GNTP request. 
 --
@@ -93,6 +96,9 @@ data    ConnectionDirective = Close
                             | KeepAlive
                             deriving (Show, Eq)
 
+--getApplicationName :: Request -> StringValue
+--getApplicationName
+
 -- | The headers defined in the GNTP 1.0 standard. Custom
 -- headers are parsed as 'UnknownHeader' instances.
 data Header = ApplicationName         StringValue
@@ -124,6 +130,8 @@ data Header = ApplicationName         StringValue
 
 type Headers = [Header]
 type NotificationHeaders = [Header]
+
+-- $(derive makeIs ''Header)
 
 -- | Extracts the 'RequestType' from a 'Request' instance.
 requestType :: Request -> RequestType
